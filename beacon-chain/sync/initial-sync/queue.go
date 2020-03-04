@@ -62,3 +62,7 @@ func newBlocksQueue(cfg *blocksQueueConfig) *blocksQueue {
 		quit:                make(chan struct{}),
 	}
 }
+
+func (q *blocksQueue) startFetchRequestLoop() {
+	fmt.Printf("here we go")
+}

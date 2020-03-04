@@ -53,3 +53,44 @@ func TestBlocksQueueInit(t *testing.T) {
 
 	dbtest.TeardownDB(t, beaconDB)
 }
+
+func TestBlocksQueueRequestSchedulingLoop(t *testing.T) {
+	chainConfig := struct {
+		startSlot, highestExpectedSlot uint64
+		expectedBlockSlots             []uint64
+		peers                          []*peerData
+	}{
+		highestExpectedSlot: 128,
+		startSlot:           31,
+		expectedBlockSlots:  makeSequence(31, 159),
+		peers: []*peerData{
+			{
+				blocks:         makeSequence(1, 320),
+				finalizedEpoch: 8,
+				headSlot:       320,
+			},
+			{
+				blocks:         makeSequence(1, 320),
+				finalizedEpoch: 8,
+				headSlot:       320,
+			},
+		},
+	}
+	mc, p2p, beaconDB := initializeTestServices(t, chainConfig.expectedBlockSlots, chainConfig.peers)
+	fetcher := newBlocksFetcher(&blocksFetcherConfig{
+		headFetcher: mc,
+		p2p:         p2p,
+	})
+	ctx, _ := context.WithCancel(context.Background())
+	queue := newBlocksQueue(&blocksQueueConfig{
+		ctx:                 ctx,
+		blocksFetcher:       fetcher,
+		headFetcher:         mc,
+		startSlot:           chainConfig.startSlot,
+		highestExpectedSlot: chainConfig.highestExpectedSlot,
+	})
+
+	t.Errorf("JUST NOTING: %v", queue)
+
+	dbtest.TeardownDB(t, beaconDB)
+}

@@ -26,7 +26,7 @@ const blockBatchSize = 64
 const blockMaxBatchSize = 8 * blockBatchSize
 const counterSeconds = 20
 const refreshTime = 6 * time.Second
-const maxBlockBatchFetchTime = 60 * time.Second
+const blockFetchTimeLimit = 60 * time.Second
 
 // Round Robin sync looks at the latest peer statuses and syncs with the highest
 // finalized peer.
@@ -53,7 +53,6 @@ func (s *Service) roundRobinSync(genesis time.Time) error {
 		}()
 	}
 
-	var peers []peer.ID
 	counter := ratecounter.NewRateCounter(counterSeconds * time.Second)
 	curBatchSize := uint64(blockBatchSize)
 	skippedBlocks := 0
@@ -69,7 +68,7 @@ func (s *Service) roundRobinSync(genesis time.Time) error {
 
 	// Step 1 - Sync to end of finalized epoch.
 	for s.chain.HeadSlot() < highestFinalizedSlot {
-		ctx, _ := context.WithTimeout(context.Background(), maxBlockBatchFetchTime)
+		ctx, _ := context.WithTimeout(context.Background(), blockFetchTimeLimit)
 		go fetcher.scheduleRequest(ctx, s.chain.HeadSlot()+uint64(skippedBlocks)+1, curBatchSize)
 
 		request := func(ctx context.Context) ([]*eth.SignedBeaconBlock, error) {
@@ -83,7 +82,6 @@ func (s *Service) roundRobinSync(genesis time.Time) error {
 				if resp.err != nil {
 					return nil, resp.err
 				}
-				peers = resp.peers
 				return resp.blocks, nil
 			}
 		}
@@ -99,7 +97,7 @@ func (s *Service) roundRobinSync(genesis time.Time) error {
 
 		numProcessedBlocks := 0
 		for _, blk := range blocks {
-			s.logSyncStatus(genesis, blk.Block, peers, counter)
+			s.logSyncStatus(genesis, blk.Block, counter)
 			if !s.db.HasBlock(ctx, bytesutil.ToBytes32(blk.Block.ParentRoot)) {
 				log.Debugf("Beacon node doesn't have a block in db with root %#x", blk.Block.ParentRoot)
 				continue
@@ -177,7 +175,7 @@ func (s *Service) roundRobinSync(genesis time.Time) error {
 		}
 
 		for _, blk := range resp {
-			s.logSyncStatus(genesis, blk.Block, []peer.ID{best}, counter)
+			s.logSyncStatus(genesis, blk.Block, counter)
 			if err := s.chain.ReceiveBlockNoPubsubForkchoice(ctx, blk); err != nil {
 				log.WithError(err).Error("Failed to process block, exiting init sync")
 				return nil
@@ -241,13 +239,14 @@ func (s *Service) highestFinalizedEpoch() uint64 {
 }
 
 // logSyncStatus and increment block processing counter.
-func (s *Service) logSyncStatus(genesis time.Time, blk *eth.BeaconBlock, syncingPeers []peer.ID, counter *ratecounter.RateCounter) {
+func (s *Service) logSyncStatus(genesis time.Time, blk *eth.BeaconBlock, counter *ratecounter.RateCounter) {
 	counter.Incr(1)
 	rate := float64(counter.Rate()) / counterSeconds
 	if rate == 0 {
 		rate = 1
 	}
 	timeRemaining := time.Duration(float64(helpers.SlotsSince(genesis)-blk.Slot)/rate) * time.Second
+	_, _, syncingPeers := s.p2p.Peers().BestFinalized(params.BeaconConfig().MaxPeersToSync, helpers.SlotToEpoch(s.chain.HeadSlot()))
 	log.WithField(
 		"peers",
 		fmt.Sprintf("%d/%d", len(syncingPeers), len(s.p2p.Peers().Connected())),

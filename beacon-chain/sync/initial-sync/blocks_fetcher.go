@@ -59,7 +59,6 @@ type fetchRequestResponse struct {
 	params *fetchRequestParams
 	blocks []*eth.SignedBeaconBlock
 	err    error
-	peers  []peer.ID
 }
 
 // newBlocksFetcher creates ready to use fetcher
@@ -110,6 +109,11 @@ func (f *blocksFetcher) loop() {
 
 	for {
 		select {
+		case req := <-f.requests:
+			if req.ctx == nil {
+				req.ctx = f.ctx
+			}
+			go f.handleRequest(req)
 		case <-f.ctx.Done():
 			// Upstream context is done.
 			err := errors.New("upstream context canceled")
@@ -123,11 +127,6 @@ func (f *blocksFetcher) loop() {
 			// Terminating abort all operations.
 			log.Debug("Blocks fetcher received a stop request.")
 			return
-		case req := <-f.requests:
-			if req.ctx == nil {
-				req.ctx = f.ctx
-			}
-			go f.handleRequest(req)
 		}
 	}
 }
@@ -193,7 +192,6 @@ func (f *blocksFetcher) handleRequest(req *fetchRequestParams) {
 	f.receivedFetchResponses <- &fetchRequestResponse{
 		params: req,
 		blocks: resp,
-		peers:  peers,
 	}
 }
 
@@ -255,11 +253,6 @@ func (f *blocksFetcher) collectPeerResponses(ctx context.Context, root []byte, f
 		if i < remainder {
 			count++
 		}
-		// Asking for no blocks may cause the client to hang. This should never happen and
-		// the peer may return an error anyway, but we'll ask for at least one block.
-		if count == 0 {
-			count++
-		}
 
 		go func(ctx context.Context, pid peer.ID) {
 			defer p2pRequests.Done()
@@ -295,6 +288,10 @@ func (f *blocksFetcher) collectPeerResponses(ctx context.Context, root []byte, f
 func (f *blocksFetcher) requestBeaconBlocksByRange(ctx context.Context, pid peer.ID, root []byte, start, step, count uint64) ([]*eth.SignedBeaconBlock, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+
+	if count == 0 {
+		return []*eth.SignedBeaconBlock{}, nil
 	}
 
 	req := &p2ppb.BeaconBlocksByRangeRequest{
