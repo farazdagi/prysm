@@ -4,8 +4,6 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
-
-	eth "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 )
 
 func TestFetchedBlocksMap(t *testing.T) {
@@ -23,9 +21,9 @@ func TestFetchedBlocksMap(t *testing.T) {
 				wg.Done()
 			},
 			func(key uint64) {
-				m.store(key, &eth.SignedBeaconBlock{})
+				m.store(key, &fetchedBlock{})
 				if m.len() < 2 {
-					m.store(key, &eth.SignedBeaconBlock{})
+					m.store(key, &fetchedBlock{})
 				}
 				wg.Done()
 			},
@@ -34,8 +32,17 @@ func TestFetchedBlocksMap(t *testing.T) {
 				wg.Done()
 			},
 			func(key uint64) {
-				m.store(key, &eth.SignedBeaconBlock{})
+				m.store(key, &fetchedBlock{})
 				m.delete(key)
+				wg.Done()
+			},
+			func(key uint64) {
+				start, end := 1, 15
+				var blocks []*fetchedBlock
+				for i := start; i < end; i++ {
+					blocks = append(blocks, &fetchedBlock{slot: uint64(i)})
+				}
+				m.storeBlocks(blocks)
 				wg.Done()
 			},
 		}
@@ -49,7 +56,7 @@ func TestFetchedBlocksMap(t *testing.T) {
 	})
 }
 
-func TestFetchedBlocksMapBlockRangeIsReady(t *testing.T) {
+func TestFetchedBlocksMapPopulated(t *testing.T) {
 	tests := []struct {
 		name         string
 		start, count uint64
@@ -87,7 +94,7 @@ func TestFetchedBlocksMapBlockRangeIsReady(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newFetchedBlocksMap()
 			for _, slot := range tt.slots {
-				m.store(slot, &eth.SignedBeaconBlock{})
+				m.store(slot, &fetchedBlock{})
 			}
 			if got := m.len(); got != tt.wantSlotsLen {
 				t.Errorf("invalid map len = %v, want %v", got, tt.wantSlotsLen)
@@ -99,4 +106,25 @@ func TestFetchedBlocksMapBlockRangeIsReady(t *testing.T) {
 		})
 	}
 
+}
+
+func TestFetchedBlocksMapStoreBlocks(t *testing.T) {
+	m := newFetchedBlocksMap()
+
+	start, end := 5, 15
+	var blocks []*fetchedBlock
+	for i := start; i < end; i++ {
+		blocks = append(blocks, &fetchedBlock{slot: uint64(i)})
+	}
+
+	m.storeBlocks(blocks)
+	if l := m.len(); l != (end - start) {
+		t.Errorf("invalid map size = %v, want %v", l, end-start)
+	}
+
+	for i := start; i < end; i++ {
+		if _, ok := m.load(uint64(i)); !ok {
+			t.Errorf("key not found: %v", i)
+		}
+	}
 }

@@ -44,13 +44,13 @@ func TestBlocksFetcherInitStartStop(t *testing.T) {
 		select {
 		case <-fetcher.requestResponses():
 		default:
-			t.Error("receivedFetchResponses channel is leaked")
+			t.Error("fetchResponses channel is leaked")
 		}
 	})
 
 	t.Run("re-starting of stopped fetcher", func(t *testing.T) {
 		if err := fetcher.start(); err == nil {
-			t.Errorf("expected error not returned: %v", errCtxIsDone)
+			t.Errorf("expected error not returned: %v", errFetcherCtxIsDone)
 		}
 	})
 
