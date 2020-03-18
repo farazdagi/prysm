@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/peer"
 	eth "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	mock "github.com/prysmaticlabs/prysm/beacon-chain/blockchain/testing"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
@@ -97,12 +96,12 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 	}{
 		{
 			name:               "Single peer with all blocks",
-			expectedBlockSlots: makeSequence(1, 128), // up to 4th epoch
+			expectedBlockSlots: makeSequence(1, 5*blockBatchSize+17),
 			peers: []*peerData{
 				{
-					blocks:         makeSequence(1, 131),
-					finalizedEpoch: 3,
-					headSlot:       131,
+					blocks:         makeSequence(1, 192),
+					finalizedEpoch: 5,
+					headSlot:       192,
 				},
 			},
 			requests: []*fetchRequestParams{
@@ -118,11 +117,23 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 					start: 2*blockBatchSize + 1,
 					count: blockBatchSize,
 				},
+				{
+					start: 3*blockBatchSize + 1,
+					count: blockBatchSize,
+				},
+				{
+					start: 4*blockBatchSize + 1,
+					count: blockBatchSize,
+				},
+				{
+					start: 5*blockBatchSize + 1,
+					count: 17,
+				},
 			},
 		},
 		{
 			name:               "Single peer with all blocks (many small requests)",
-			expectedBlockSlots: makeSequence(1, 128), // up to 4th epoch
+			expectedBlockSlots: makeSequence(1, 4*blockBatchSize/2+blockBatchSize/2),
 			peers: []*peerData{
 				{
 					blocks:         makeSequence(1, 131),
@@ -155,32 +166,22 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 		},
 		{
 			name:               "Multiple peers with all blocks",
-			expectedBlockSlots: makeSequence(1, 128), // up to 4th epoch
+			expectedBlockSlots: makeSequence(1, 171),
 			peers: []*peerData{
 				{
-					blocks:         makeSequence(1, 131),
-					finalizedEpoch: 3,
-					headSlot:       131,
+					blocks:         makeSequence(1, 171),
+					finalizedEpoch: 5,
+					headSlot:       171,
 				},
 				{
-					blocks:         makeSequence(1, 131),
-					finalizedEpoch: 3,
-					headSlot:       131,
+					blocks:         makeSequence(1, 171),
+					finalizedEpoch: 5,
+					headSlot:       171,
 				},
 				{
-					blocks:         makeSequence(1, 131),
-					finalizedEpoch: 3,
-					headSlot:       131,
-				},
-				{
-					blocks:         makeSequence(1, 131),
-					finalizedEpoch: 3,
-					headSlot:       131,
-				},
-				{
-					blocks:         makeSequence(1, 131),
-					finalizedEpoch: 3,
-					headSlot:       131,
+					blocks:         makeSequence(1, 171),
+					finalizedEpoch: 5,
+					headSlot:       171,
 				},
 			},
 			requests: []*fetchRequestParams{
@@ -194,6 +195,22 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 				},
 				{
 					start: 2*blockBatchSize + 1,
+					count: blockBatchSize,
+				},
+				{
+					start: 3*blockBatchSize + 1,
+					count: blockBatchSize,
+				},
+				{
+					start: 4*blockBatchSize + 1,
+					count: blockBatchSize,
+				},
+				{
+					start: 5*blockBatchSize + 1,
+					count: blockBatchSize,
+				},
+				{
+					start: 6*blockBatchSize + 1,
 					count: blockBatchSize,
 				},
 			},
@@ -234,10 +251,10 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 				},
 				{
 					start: 400,
-					count: 150,
+					count: 149,
 				},
 				{
-					start: 553,
+					start: 550,
 					count: 200,
 				},
 			},
@@ -266,6 +283,7 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 					blocks:         makeSequence(1, 320),
 					finalizedEpoch: 8,
 					headSlot:       320,
+					failureSlots:   makeSequence(1, 32), // first epoch
 				},
 			},
 			requests: []*fetchRequestParams{
@@ -344,7 +362,10 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 						}
 
 						if resp.err != nil {
-							log.WithError(resp.err).Debug("Block fetcher returned error")
+							log.WithError(resp.err).Debug("!Block fetcher returned error")
+							if resp.err.Error() == "request produced error, retry scheduled: bad" {
+								continue
+							}
 						} else {
 							unionRespBlocks = append(unionRespBlocks, resp.blocks...)
 							if len(resp.blocks) == 0 {
@@ -361,12 +382,16 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 			}
 
 			maxExpectedBlocks := uint64(0)
-			for _, requestParams := range tt.requests {
-				err = fetcher.scheduleRequest(context.Background(), requestParams.start, requestParams.count)
+			for _, req := range tt.requests {
+				pid, err := fetcher.selectPeer(ctx)
 				if err != nil {
 					t.Error(err)
 				}
-				maxExpectedBlocks += requestParams.count
+				err = fetcher.scheduleRequest(context.Background(), pid, req.start, req.count)
+				if err != nil {
+					t.Error(err)
+				}
+				maxExpectedBlocks += req.count
 			}
 
 			blocks, err := processFetchedBlocks()
@@ -415,7 +440,7 @@ func TestBlocksFetcherScheduleRequest(t *testing.T) {
 			p2p:         nil,
 		})
 		cancel()
-		if err := fetcher.scheduleRequest(ctx, 1, blockBatchSize); err == nil {
+		if err := fetcher.scheduleRequest(ctx, "", 1, blockBatchSize); err == nil {
 			t.Errorf("expected error: %v", errFetcherCtxIsDone)
 		}
 	})
@@ -452,7 +477,7 @@ func TestBlocksFetcherHandleRequest(t *testing.T) {
 		})
 
 		cancel()
-		response := fetcher.handleRequest(ctx, 1, blockBatchSize)
+		response := fetcher.handleRequest(ctx, &fetchRequestParams{})
 		if response.err == nil {
 			t.Errorf("expected error: %v", errFetcherCtxIsDone)
 		}
@@ -468,7 +493,17 @@ func TestBlocksFetcherHandleRequest(t *testing.T) {
 
 		requestCtx, _ := context.WithTimeout(context.Background(), 2*time.Second)
 		go func() {
-			response := fetcher.handleRequest(requestCtx, 1 /* start */, blockBatchSize /* count */)
+			pid, err := fetcher.selectPeer(ctx)
+			if err != nil {
+				t.Error(err)
+			}
+			request := &fetchRequestParams{
+				ctx:   requestCtx,
+				pid:   pid,
+				start: 1,
+				count: blockBatchSize,
+			}
+			response := fetcher.handleRequest(requestCtx, request)
 			select {
 			case <-ctx.Done():
 			case fetcher.fetchResponses <- response:
@@ -534,7 +569,7 @@ func TestBlocksFetcherRequestBeaconBlocksByRangeRequest(t *testing.T) {
 
 	root, _, peers := p2p.Peers().BestFinalized(params.BeaconConfig().MaxPeersToSync, helpers.SlotToEpoch(mc.HeadSlot()))
 
-	blocks, err := fetcher.requestBeaconBlocksByRange(context.Background(), peers[0], root, 1, 1, blockBatchSize)
+	blocks, err := fetcher.requestBlocks(context.Background(), peers[0], root, 1, blockBatchSize)
 	if err != nil {
 		t.Errorf("error: %v", err)
 	}
@@ -547,7 +582,7 @@ func TestBlocksFetcherRequestBeaconBlocksByRangeRequest(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	blocks, err = fetcher.requestBeaconBlocksByRange(context.Background(), peers[0], root, 1, 1, blockBatchSize)
+	blocks, err = fetcher.requestBlocks(context.Background(), peers[0], root, 1, blockBatchSize)
 	if err != nil {
 		t.Errorf("error: %v", err)
 	}
@@ -555,7 +590,7 @@ func TestBlocksFetcherRequestBeaconBlocksByRangeRequest(t *testing.T) {
 	// Test request fail over (error).
 	err = fetcher.p2p.Disconnect(peers[1])
 	ctx, _ = context.WithTimeout(context.Background(), time.Second*1)
-	blocks, err = fetcher.requestBeaconBlocksByRange(ctx, peers[1], root, 1, 1, blockBatchSize)
+	blocks, err = fetcher.requestBlocks(ctx, peers[1], root, 1, blockBatchSize)
 	testutil.AssertLogsContain(t, hook, "Request failed, trying to forward request to another peer")
 	if err == nil || err.Error() != "context deadline exceeded" {
 		t.Errorf("expected context closed error, got: %v", err)
@@ -564,91 +599,12 @@ func TestBlocksFetcherRequestBeaconBlocksByRangeRequest(t *testing.T) {
 	// Test context cancellation.
 	ctx, cancel = context.WithCancel(context.Background())
 	cancel()
-	blocks, err = fetcher.requestBeaconBlocksByRange(ctx, peers[0], root, 1, 1, blockBatchSize)
+	blocks, err = fetcher.requestBlocks(ctx, peers[0], root, 1, blockBatchSize)
 	if err == nil || err.Error() != "context canceled" {
 		t.Errorf("expected context closed error, got: %v", err)
 	}
 
 	dbtest.TeardownDB(t, beaconDB)
-}
-
-func TestBlocksFetcherSelectFailOverPeer(t *testing.T) {
-	type args struct {
-		excludedPID peer.ID
-		peers       []peer.ID
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    peer.ID
-		wantErr error
-	}{
-		{
-			name: "No peers provided",
-			args: args{
-				excludedPID: "abc",
-				peers:       []peer.ID{},
-			},
-			want:    "",
-			wantErr: errNoPeersAvailable,
-		},
-		{
-			name: "Single peer which needs to be excluded",
-			args: args{
-				excludedPID: "abc",
-				peers: []peer.ID{
-					"abc",
-				},
-			},
-			want:    "",
-			wantErr: errNoPeersAvailable,
-		},
-		{
-			name: "Single peer available",
-			args: args{
-				excludedPID: "abc",
-				peers: []peer.ID{
-					"cde",
-				},
-			},
-			want:    "cde",
-			wantErr: nil,
-		},
-		{
-			name: "Two peers available",
-			args: args{
-				excludedPID: "abc",
-				peers: []peer.ID{
-					"abc", "cde",
-				},
-			},
-			want:    "cde",
-			wantErr: nil,
-		},
-		{
-			name: "Multiple peers available",
-			args: args{
-				excludedPID: "abc",
-				peers: []peer.ID{
-					"abc", "cde", "cde", "cde",
-				},
-			},
-			want:    "cde",
-			wantErr: nil,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := selectFailOverPeer(tt.args.excludedPID, tt.args.peers)
-			if err != nil && err != tt.wantErr {
-				t.Errorf("selectFailOverPeer() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("selectFailOverPeer() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
 
 func initializeTestServices(t *testing.T, blocks []uint64, peers []*peerData) (*mock.ChainService, *p2pt.TestP2P, db.Database) {
