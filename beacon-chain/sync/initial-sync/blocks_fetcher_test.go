@@ -2,7 +2,9 @@ package initialsync
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -535,7 +537,7 @@ func TestBlocksFetcherHandleRequest(t *testing.T) {
 	})
 }
 
-func TestBlocksFetcherRequestBeaconBlocksByRangeRequest(t *testing.T) {
+func TestBlocksFetcherRequestBlocks(t *testing.T) {
 	chainConfig := struct {
 		expectedBlockSlots []uint64
 		peers              []*peerData
@@ -582,18 +584,18 @@ func TestBlocksFetcherRequestBeaconBlocksByRangeRequest(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	blocks, err = fetcher.requestBlocks(context.Background(), peers[0], root, 1, blockBatchSize)
-	if err != nil {
-		t.Errorf("error: %v", err)
+	hook.Reset()
+	request := &fetchRequestParams{
+		ctx:   ctx,
+		pid:   peers[0],
+		start: 1,
+		count: blockBatchSize,
 	}
-
-	// Test request fail over (error).
-	err = fetcher.p2p.Disconnect(peers[1])
-	ctx, _ = context.WithTimeout(context.Background(), time.Second*1)
-	blocks, err = fetcher.requestBlocks(ctx, peers[1], root, 1, blockBatchSize)
-	testutil.AssertLogsContain(t, hook, "Request failed, trying to forward request to another peer")
-	if err == nil || err.Error() != "context deadline exceeded" {
-		t.Errorf("expected context closed error, got: %v", err)
+	response := fetcher.handleRequest(request.ctx, request)
+	testutil.AssertLogsContain(t, hook, "Retrying request")
+	expectedErr := fmt.Sprintf("failed to dial %v: no addresses", peers[0])
+	if response.err != nil && !strings.Contains(response.err.Error(), expectedErr) {
+		t.Errorf("unexpected error: want: %v, got: %v", expectedErr, response.err)
 	}
 
 	// Test context cancellation.

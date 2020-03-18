@@ -233,6 +233,7 @@ func (f *blocksFetcher) handleRequest(ctx context.Context, req *fetchRequestPara
 		}
 
 		response.err = errors.Wrap(err, "request produced error, retry scheduled")
+		log.WithError(response.err).Debug("Retrying request")
 		return response
 	}
 
