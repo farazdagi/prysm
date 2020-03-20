@@ -353,8 +353,8 @@ func connectPeers(t *testing.T, host *p2pt.TestP2P, data []*peerData, peerStatus
 					blk.Block.ParentRoot = newRoot[:]
 				}
 				ret = append(ret, blk)
-				currRoot, _ := ssz.HashTreeRoot(blk.Block)
-				logrus.Infof("block with slot %d , signing root %#x and parent root %#x", slot, currRoot, parentRoot)
+				//currRoot, _ := ssz.HashTreeRoot(blk.Block)
+				//logrus.Infof("block with slot %d , signing root %#x and parent root %#x", slot, currRoot, parentRoot)
 			}
 
 			if uint64(len(ret)) > req.Count {

@@ -18,7 +18,6 @@ import (
 	pb "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
 	"github.com/prysmaticlabs/prysm/shared/event"
 	"github.com/prysmaticlabs/prysm/shared/params"
-	"github.com/sirupsen/logrus"
 )
 
 // ChainService defines the mock interface for testing
@@ -138,7 +137,7 @@ func (ms *ChainService) ReceiveBlockNoPubsubForkchoice(ctx context.Context, bloc
 		if err := ms.DB.SaveBlock(ctx, block); err != nil {
 			return err
 		}
-		logrus.Infof("Saved block with root: %#x at slot %d", signingRoot, block.Block.Slot)
+		//logrus.Infof("Saved block with root: %#x at slot %d", signingRoot, block.Block.Slot)
 	}
 	ms.Root = signingRoot[:]
 	ms.Block = block

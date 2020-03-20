@@ -21,7 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const blockBatchSize = 64
+const blockBatchSize = allowedBlocksPerSecond
 const counterSeconds = 20
 const refreshTime = 6 * time.Second
 
@@ -65,7 +65,8 @@ func (s *Service) roundRobinSync(genesis time.Time) error {
 	for blk := range queue.fetchedBlocks {
 		s.logSyncStatus(genesis, blk.Block, counter)
 		if err := s.processBlock(ctx, blk); err != nil {
-			log.WithError(err).Info("Block is invalid")
+			log.Infof("Block is invalid: %v", err)
+			queue.deleteCachedBlock(blk.Block.Slot)
 			queue.state.scheduler.incrementCounter(failedBlock, 1)
 			continue
 		}

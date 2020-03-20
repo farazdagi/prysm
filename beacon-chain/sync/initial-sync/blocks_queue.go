@@ -6,22 +6,26 @@ import (
 	"sync"
 	"time"
 
+	"github.com/libp2p/go-libp2p-core/peer"
 	eth "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
 	"github.com/prysmaticlabs/prysm/beacon-chain/p2p"
 	"github.com/prysmaticlabs/prysm/shared/mathutil"
+	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
 
 const (
 	// queueMaxPendingRequests limits how many concurrent fetch request queue can initiate.
 	queueMaxPendingRequests = 8
-	// queueFetchRequestTimeout caps maximum amount of time before fetch requests is cancelled.
-	queueFetchRequestTimeout = 60 * time.Second
 	// queueMaxCachedBlocks hard limit on how many queue items to cache before forced dequeue.
-	queueMaxCachedBlocks = 8 * queueMaxPendingRequests * blockBatchSize
+	queueMaxCachedBlocks = 16 * queueMaxPendingRequests * blockBatchSize
 	// queueStopCallTimeout is time allowed for queue to release resources when quitting.
 	queueStopCallTimeout = 1 * time.Second
+	// queuePollingInterval is an interval at which queue schedules fetch request.
+	queuePollingInterval = 1 * time.Second
+	// backoffInterval is an interval for which system waits before proceeding with another request.
+	backoffInterval = 4 * time.Second
 )
 
 var (
@@ -31,6 +35,7 @@ var (
 
 // blocksProvider exposes enough methods for queue to fetch incoming blocks.
 type blocksProvider interface {
+	waitForMinimumPeers(ctx context.Context) ([]peer.ID, error)
 	requestResponses() <-chan *fetchRequestResponse
 	scheduleRequest(ctx context.Context, start, count uint64) error
 	start() error
@@ -59,6 +64,8 @@ type blockState uint8
 const (
 	// pendingBlock is a default block status when just added to queue.
 	pendingBlock = iota
+	// readyBlock represents a block for which response has been received from the fetcher.
+	readyBlock
 	// validBlock represents block that can be processed.
 	validBlock
 	// skippedBlock is a block for a slot that is not found on any available peers.
@@ -73,7 +80,6 @@ const (
 type schedulerState struct {
 	sync.Mutex
 	currentSlot     uint64
-	blockBatchSize  uint64
 	requestedBlocks map[blockState]uint64
 }
 
@@ -98,7 +104,6 @@ type blocksQueue struct {
 	headFetcher          blockchain.HeadFetcher
 	fetchedBlocks        chan *eth.SignedBeaconBlock // output channel for ready blocks
 	pendingFetchRequests chan struct{}               // pending requests semaphore
-	pendingFetchedBlocks chan struct{}               // notifier, pings block sending handler
 	quit                 chan struct{}               // termination notifier
 }
 
@@ -121,7 +126,6 @@ func newBlocksQueue(ctx context.Context, cfg *blocksQueueConfig) *blocksQueue {
 		state: &blocksQueueState{
 			scheduler: &schedulerState{
 				currentSlot:     cfg.startSlot,
-				blockBatchSize:  blockBatchSize,
 				requestedBlocks: make(map[blockState]uint64, blockStateLen),
 			},
 			sender:       &senderState{},
@@ -131,7 +135,6 @@ func newBlocksQueue(ctx context.Context, cfg *blocksQueueConfig) *blocksQueue {
 		headFetcher:          cfg.headFetcher,
 		fetchedBlocks:        make(chan *eth.SignedBeaconBlock, blockBatchSize),
 		pendingFetchRequests: make(chan struct{}, queueMaxPendingRequests),
-		pendingFetchedBlocks: make(chan struct{}, queueMaxPendingRequests),
 		quit:                 make(chan struct{}),
 	}
 }
@@ -182,10 +185,23 @@ func (q *blocksQueue) loop() {
 		}
 	}
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		q.schedulerLoop(q.ctx)
+	}()
+
+	ticker := time.NewTicker(queuePollingInterval)
+	defer ticker.Stop()
 	for {
 		if q.headFetcher.HeadSlot() >= q.highestExpectedSlot {
 			log.Debug("Highest expected slot reached")
 			q.cancel()
+		}
+
+		// Make sure there is are available peers before processing requests.
+		if _, err := q.blocksFetcher.waitForMinimumPeers(q.ctx); err != nil {
+			log.Error(err)
 		}
 
 		select {
@@ -199,7 +215,8 @@ func (q *blocksQueue) loop() {
 
 				// Schedule request.
 				if err := q.scheduleFetchRequests(q.ctx); err != nil {
-					q.state.scheduler.incrementCounter(failedBlock, blockBatchSize)
+					log.Debugf("Error scheduling fetch requests: %v", err)
+					time.Sleep(backoffInterval)
 					releaseTicket()
 				}
 			}()
@@ -209,6 +226,12 @@ func (q *blocksQueue) loop() {
 				q.cancel()
 				return
 			}
+			log.WithFields(logrus.Fields{
+				"err":   response.err,
+				"start": response.start,
+				"count": response.count,
+				"len":   len(response.blocks),
+			}).Debug("Response received....")
 
 			// Release semaphore ticket.
 			go releaseTicket()
@@ -216,31 +239,57 @@ func (q *blocksQueue) loop() {
 			// Process incoming response into blocks.
 			wg.Add(1)
 			go func() {
-				defer func() {
-					select {
-					case <-q.ctx.Done():
-					case q.pendingFetchedBlocks <- struct{}{}: // notify sender of data availability
-					}
-					wg.Done()
-				}()
+				defer wg.Done()
 
 				skippedBlocks, err := q.parseFetchResponse(q.ctx, response)
 				if err != nil {
+					log.Debugf("Error response received from fetcher: %v", err)
 					q.state.scheduler.incrementCounter(failedBlock, response.count)
 					return
 				}
 				q.state.scheduler.incrementCounter(skippedBlock, skippedBlocks)
+				log.WithFields(logrus.Fields{
+					"skipped": skippedBlocks,
+					"start":   response.start,
+					"count":   response.count,
+					"len":     len(response.blocks),
+				}).Debug("Response received")
 			}()
-		case <-q.pendingFetchedBlocks:
+		case <-ticker.C:
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				if err := q.sendFetchedBlocks(q.ctx); err != nil {
-					log.WithError(err).Debug("Error sending received blocks")
+					log.Debugf("Error sending received blocks: %v", err)
 				}
 			}()
 		}
 	}
+}
+
+func (q *blocksQueue) schedulerLoop(ctx context.Context) {
+	releaseTicket := func() {
+		select {
+		case <-q.ctx.Done():
+		case <-q.pendingFetchRequests:
+		}
+	}
+
+	for {
+		select {
+		case <-q.ctx.Done():
+			log.Debug("Context closed, exiting goroutine (blocks queue)")
+			return
+		case q.pendingFetchRequests <- struct{}{}:
+			// Schedule request.
+			if err := q.scheduleFetchRequests(q.ctx); err != nil {
+				log.Debugf("Error scheduling fetch requests: %v", err)
+				time.Sleep(backoffInterval)
+				releaseTicket()
+			}
+		}
+	}
+
 }
 
 // scheduleFetchRequests enqueues block fetch requests to block fetcher.
@@ -254,60 +303,55 @@ func (q *blocksQueue) scheduleFetchRequests(ctx context.Context) error {
 
 	s := q.state.scheduler
 	blocks := q.state.scheduler.requestedBlocks
+	headSlot := q.headFetcher.HeadSlot()
 
-	func() {
-		resetStateCounters := func() {
-			for i := 0; i < blockStateLen; i++ {
-				blocks[blockState(i)] = 0
-			}
-			s.currentSlot = q.headFetcher.HeadSlot()
+	resetStateCounters := func() {
+		for i := 0; i < blockStateLen; i++ {
+			blocks[blockState(i)] = 0
 		}
+		s.currentSlot = headSlot
+	}
 
-		// Update state's current slot pointer.
-		count := blocks[pendingBlock] + blocks[skippedBlock] + blocks[failedBlock] + blocks[validBlock]
-		if count == 0 {
-			s.currentSlot = q.headFetcher.HeadSlot()
-			return
-		}
+	// Update state's current slot pointer.
+	count := blocks[pendingBlock] + blocks[skippedBlock] + blocks[failedBlock] + blocks[validBlock]
+	if count == 0 {
+		s.currentSlot = headSlot
+	}
 
-		// Too many failures (blocks that can't be processed at this time).
-		if blocks[failedBlock] >= s.blockBatchSize/2 {
-			s.blockBatchSize *= 2
-			resetStateCounters()
-			return
-		}
+	// All blocks processed, no pending blocks.
+	count = blocks[skippedBlock] + blocks[failedBlock] + blocks[validBlock]
+	if count > 0 && blocks[pendingBlock] == 0 && count != blocks[skippedBlock] {
+		resetStateCounters()
+	}
 
-		// Given enough valid blocks, we can set back block batch size.
-		if blocks[validBlock] >= blockBatchSize && s.blockBatchSize != blockBatchSize {
-			blocks[skippedBlock], blocks[validBlock] = blocks[skippedBlock]+blocks[validBlock], 0
-			s.blockBatchSize = blockBatchSize
-		}
+	// Too many pending blocks, slowdown.
+	if count = blocks[pendingBlock]; count > queueMaxPendingRequests*blockBatchSize {
+		log.WithField("blocks", blocks).Debug("Too many pending blocks")
+		return errors.New("too many pending blocks, slowing down")
+	}
 
-		// Too many items in scheduler, time to update current slot to point to current head's slot.
-		count = blocks[pendingBlock] + blocks[skippedBlock] + blocks[failedBlock] + blocks[validBlock]
-		if count >= queueMaxCachedBlocks {
-			s.blockBatchSize = blockBatchSize
-			resetStateCounters()
-			return
-		}
-
-		// All blocks processed, no pending blocks.
-		count = blocks[skippedBlock] + blocks[failedBlock] + blocks[validBlock]
-		if count > 0 && blocks[pendingBlock] == 0 {
-			s.blockBatchSize = blockBatchSize
-			resetStateCounters()
-			return
-		}
-	}()
+	// Too many items in scheduler's queue, adding more is not allowed.
+	count = blocks[pendingBlock] + blocks[failedBlock] + blocks[validBlock]
+	log.WithField("blocks", blocks).Debug("-------------->>>")
+	if count >= queueMaxCachedBlocks {
+		resetStateCounters()
+		log.WithField("blocks", blocks).Debug("AFTER-------------->>>")
+	}
 
 	offset := blocks[pendingBlock] + blocks[skippedBlock] + blocks[failedBlock] + blocks[validBlock]
 	start := q.state.scheduler.currentSlot + offset + 1
-	count := mathutil.Min(q.state.scheduler.blockBatchSize, q.highestExpectedSlot-start+1)
+	count = mathutil.Min(blockBatchSize, q.highestExpectedSlot-start+1)
+
+	log.WithFields(logrus.Fields{
+		"blocks": blocks,
+		"start":  start,
+		"count":  count,
+		"offset": offset,
+	}).Debug("<<<<<<<<<<<<<<<<<<<<<<<<before sced")
 	if count <= 0 {
 		return errStartSlotIsTooHigh
 	}
 
-	ctx, _ = context.WithTimeout(ctx, queueFetchRequestTimeout)
 	if err := q.blocksFetcher.scheduleRequest(ctx, start, count); err != nil {
 		return err
 	}
@@ -327,6 +371,10 @@ func (q *blocksQueue) parseFetchResponse(ctx context.Context, response *fetchReq
 
 	if response.err != nil {
 		return 0, response.err
+	}
+
+	if q.headFetcher.HeadSlot() > response.start {
+		return 0, errors.New("outdated blocks")
 	}
 
 	// Extract beacon blocks.
@@ -370,7 +418,6 @@ func (q *blocksQueue) sendFetchedBlocks(ctx context.Context) error {
 	defer span.End()
 
 	startSlot := q.headFetcher.HeadSlot() + 1
-	nonSkippedSlot := uint64(0)
 	for slot := startSlot; slot <= q.highestExpectedSlot; slot++ {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -385,20 +432,25 @@ func (q *blocksQueue) sendFetchedBlocks(ctx context.Context) error {
 				return ctx.Err()
 			case q.fetchedBlocks <- blockData.SignedBeaconBlock:
 			}
-			nonSkippedSlot = slot
 		}
 	}
 
 	// Remove processed blocks.
-	if nonSkippedSlot > 0 {
-		for slot := range q.state.cachedBlocks {
-			if slot <= nonSkippedSlot {
-				delete(q.state.cachedBlocks, slot)
-			}
+	for slot := range q.state.cachedBlocks {
+		if slot < startSlot {
+			delete(q.state.cachedBlocks, slot)
 		}
 	}
+	log.WithField("LEN", len(q.state.cachedBlocks)).Debug("QUEUE CACHE SIZE")
 
 	return nil
+}
+
+// deleteCachedBlock removes cached block.
+func (q *blocksQueue) deleteCachedBlock(key uint64) {
+	q.state.sender.Lock()
+	defer q.state.sender.Unlock()
+	delete(q.state.cachedBlocks, key)
 }
 
 // incrementCounter increments particular scheduler counter.
@@ -414,4 +466,15 @@ func (s *schedulerState) incrementCounter(counter blockState, n uint64) {
 	n = mathutil.Min(s.requestedBlocks[pendingBlock], n)
 	s.requestedBlocks[counter] += n
 	s.requestedBlocks[pendingBlock] -= n
+}
+
+// updateCounters moves n tokens from source to target counters.
+func (s *schedulerState) updateCounters(source, target blockState, n uint64) uint64 {
+	s.Lock()
+	defer s.Unlock()
+
+	n = mathutil.Min(s.requestedBlocks[source], n)
+	s.requestedBlocks[source] -= n
+	s.requestedBlocks[target] += n
+	return n
 }
