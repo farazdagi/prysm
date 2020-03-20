@@ -41,6 +41,7 @@ type blocksFetcherConfig struct {
 // On an incoming requests, requested block range is evenly divided
 // among available peers (for fair network load distribution).
 type blocksFetcher struct {
+	sync.Mutex
 	ctx            context.Context
 	cancel         context.CancelFunc
 	headFetcher    blockchain.HeadFetcher
@@ -73,7 +74,7 @@ func newBlocksFetcher(ctx context.Context, cfg *blocksFetcherConfig) *blocksFetc
 	ctx, cancel := context.WithCancel(ctx)
 	rateLimiter := leakybucket.NewCollector(
 		allowedBlocksPerSecond, /* rate */
-		allowedBlocksPerSecond, /* capacity */
+		blockBatchSize,         /* capacity */
 		false                   /* deleteEmptyBuckets */)
 
 	return &blocksFetcher{
@@ -132,12 +133,6 @@ func (f *blocksFetcher) loop() {
 			log.Debug("Context closed, exiting goroutine (blocks fetcher)")
 			return
 		case req := <-f.fetchRequests:
-			// Do not overflow any peers, slowdown on a recently used peer.
-			if f.rateLimiter.Remaining(req.pid.String()) < int64(blockBatchSize) {
-				log.WithField("peer", req.pid).Debug("Slowing down before processing request")
-				time.Sleep(f.rateLimiter.TillEmpty(req.pid.String()))
-			}
-
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -233,7 +228,7 @@ func (f *blocksFetcher) handleRequest(ctx context.Context, req *fetchRequestPara
 		}
 
 		response.err = errors.Wrap(err, "request produced error, retry scheduled")
-		log.WithError(response.err).Debug("Retrying request")
+		log.Debug("Retrying request")
 		return response
 	}
 
@@ -248,6 +243,9 @@ func (f *blocksFetcher) requestBlocks(
 	root []byte,
 	start, count uint64,
 ) ([]*eth.SignedBeaconBlock, error) {
+	f.Lock()
+	defer f.Unlock()
+
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}

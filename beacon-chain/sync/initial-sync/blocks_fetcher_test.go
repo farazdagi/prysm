@@ -364,7 +364,7 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 						}
 
 						if resp.err != nil {
-							log.WithError(resp.err).Debug("!Block fetcher returned error")
+							log.WithError(resp.err).Debug("Block fetcher returned error")
 							if resp.err.Error() == "request produced error, retry scheduled: bad" {
 								continue
 							}
