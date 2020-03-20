@@ -55,7 +55,6 @@ type blocksFetcher struct {
 // fetchRequestParams holds parameters necessary to schedule a fetch request.
 type fetchRequestParams struct {
 	ctx     context.Context // if provided, it is used instead of global fetcher's context
-	pid     peer.ID         // assigned peer
 	start   uint64          // starting slot
 	count   uint64          // how many slots to receive (fetcher may return fewer slots)
 	retries uint8           // number of retries
@@ -146,40 +145,29 @@ func (f *blocksFetcher) loop() {
 }
 
 // scheduleRequest adds request to incoming queue.
-func (f *blocksFetcher) scheduleRequest(ctx context.Context, pid peer.ID, start, count uint64) (err error) {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	if pid == "" {
-		pid, err = f.selectPeer(ctx)
-		if err != nil {
-			return
-		}
-	}
-
+func (f *blocksFetcher) scheduleRequest(ctx context.Context, start, count uint64) (err error) {
 	request := &fetchRequestParams{
 		ctx:   ctx,
-		pid:   pid,
 		start: start,
 		count: count,
 	}
 	select {
-	case <-f.ctx.Done():
+	case <-ctx.Done():
 		return errFetcherCtxIsDone
 	case f.fetchRequests <- request:
 	}
 	return nil
 }
 
-// rescheduleRequest tries to reschedule previously scheduled request.
-func (f *blocksFetcher) rescheduleRequest(ctx context.Context, req *fetchRequestParams) error {
-	pid, err := f.selectPeer(ctx)
-	if err != nil {
-		return errors.Wrap(err, "error re-scheduling request")
+// rescheduleRequest reschedules request and increases retry counter.
+func (f *blocksFetcher) rescheduleRequest(ctx context.Context, request *fetchRequestParams) error {
+	request.retries++
+	select {
+	case <-ctx.Done():
+		return errFetcherCtxIsDone
+	case f.fetchRequests <- request:
 	}
-	req.retries++
-	return f.scheduleRequest(ctx, pid, req.start, req.count)
+	return nil
 }
 
 // handleRequest parses fetch request and forwards it to response builder.
@@ -213,7 +201,13 @@ func (f *blocksFetcher) handleRequest(ctx context.Context, req *fetchRequestPara
 		return response
 	}
 
-	blocks, err := f.requestBlocks(ctx, req.pid, root, req.start, req.count)
+	pid, err := f.selectPeer(ctx)
+	if err != nil {
+		response.err = err
+		return response
+	}
+
+	blocks, err := f.requestBlocks(ctx, pid, root, req.start, req.count)
 	if err != nil {
 		// When there are no retries left, just send error response.
 		if req.retries >= fetchRequestRetries {
@@ -221,14 +215,20 @@ func (f *blocksFetcher) handleRequest(ctx context.Context, req *fetchRequestPara
 			return response
 		}
 
-		// Try to resend request (to another peer).
+		// Try to reschedule request to another peer.
 		if err := f.rescheduleRequest(ctx, req); err != nil {
 			response.err = err
 			return response
 		}
 
+		// Rescheduled ok, notify upstream.
 		response.err = errors.Wrap(err, "request produced error, retry scheduled")
-		log.Debug("Retrying request")
+		log.WithFields(logrus.Fields{
+			"peer":    pid,
+			"start":   req.start,
+			"count":   req.count,
+			"attempt": req.retries + 1,
+		}).Debug("Retrying request")
 		return response
 	}
 

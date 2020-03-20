@@ -385,11 +385,7 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 
 			maxExpectedBlocks := uint64(0)
 			for _, req := range tt.requests {
-				pid, err := fetcher.selectPeer(ctx)
-				if err != nil {
-					t.Error(err)
-				}
-				err = fetcher.scheduleRequest(context.Background(), pid, req.start, req.count)
+				err = fetcher.scheduleRequest(context.Background(), req.start, req.count)
 				if err != nil {
 					t.Error(err)
 				}
@@ -442,7 +438,7 @@ func TestBlocksFetcherScheduleRequest(t *testing.T) {
 			p2p:         nil,
 		})
 		cancel()
-		if err := fetcher.scheduleRequest(ctx, "", 1, blockBatchSize); err == nil {
+		if err := fetcher.scheduleRequest(ctx, 1, blockBatchSize); err == nil {
 			t.Errorf("expected error: %v", errFetcherCtxIsDone)
 		}
 	})
@@ -495,13 +491,8 @@ func TestBlocksFetcherHandleRequest(t *testing.T) {
 
 		requestCtx, _ := context.WithTimeout(context.Background(), 2*time.Second)
 		go func() {
-			pid, err := fetcher.selectPeer(ctx)
-			if err != nil {
-				t.Error(err)
-			}
 			request := &fetchRequestParams{
 				ctx:   requestCtx,
-				pid:   pid,
 				start: 1,
 				count: blockBatchSize,
 			}
@@ -587,7 +578,6 @@ func TestBlocksFetcherRequestBlocks(t *testing.T) {
 	hook.Reset()
 	request := &fetchRequestParams{
 		ctx:   ctx,
-		pid:   peers[0],
 		start: 1,
 		count: blockBatchSize,
 	}
