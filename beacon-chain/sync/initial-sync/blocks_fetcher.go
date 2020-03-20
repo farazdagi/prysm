@@ -23,8 +23,6 @@ import (
 	"go.opencensus.io/trace"
 )
 
-const fetchRequestRetries = 3 // how many times to retry fetching given range
-
 var (
 	errNoPeersAvailable   = errors.New("no peers available, waiting for reconnect")
 	errFetcherCtxIsDone   = errors.New("fetcher's context is done, reinitialize")
@@ -54,10 +52,9 @@ type blocksFetcher struct {
 
 // fetchRequestParams holds parameters necessary to schedule a fetch request.
 type fetchRequestParams struct {
-	ctx     context.Context // if provided, it is used instead of global fetcher's context
-	start   uint64          // starting slot
-	count   uint64          // how many slots to receive (fetcher may return fewer slots)
-	retries uint8           // number of retries
+	ctx   context.Context // if provided, it is used instead of global fetcher's context
+	start uint64          // starting slot
+	count uint64          // how many slots to receive (fetcher may return fewer slots)
 }
 
 // fetchRequestResponse is a combined type to hold results of both successful executions and errors.
@@ -146,22 +143,15 @@ func (f *blocksFetcher) loop() {
 
 // scheduleRequest adds request to incoming queue.
 func (f *blocksFetcher) scheduleRequest(ctx context.Context, start, count uint64) (err error) {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	request := &fetchRequestParams{
 		ctx:   ctx,
 		start: start,
 		count: count,
 	}
-	select {
-	case <-ctx.Done():
-		return errFetcherCtxIsDone
-	case f.fetchRequests <- request:
-	}
-	return nil
-}
-
-// rescheduleRequest reschedules request and increases retry counter.
-func (f *blocksFetcher) rescheduleRequest(ctx context.Context, request *fetchRequestParams) error {
-	request.retries++
 	select {
 	case <-ctx.Done():
 		return errFetcherCtxIsDone
@@ -209,26 +199,7 @@ func (f *blocksFetcher) handleRequest(ctx context.Context, req *fetchRequestPara
 
 	blocks, err := f.requestBlocks(ctx, pid, root, req.start, req.count)
 	if err != nil {
-		// When there are no retries left, just send error response.
-		if req.retries >= fetchRequestRetries {
-			response.err = err
-			return response
-		}
-
-		// Try to reschedule request to another peer.
-		if err := f.rescheduleRequest(ctx, req); err != nil {
-			response.err = err
-			return response
-		}
-
-		// Rescheduled ok, notify upstream.
-		response.err = errors.Wrap(err, "request produced error, retry scheduled")
-		log.WithFields(logrus.Fields{
-			"peer":    pid,
-			"start":   req.start,
-			"count":   req.count,
-			"attempt": req.retries + 1,
-		}).Debug("Retrying request")
+		response.err = err
 		return response
 	}
 
@@ -243,13 +214,12 @@ func (f *blocksFetcher) requestBlocks(
 	root []byte,
 	start, count uint64,
 ) ([]*eth.SignedBeaconBlock, error) {
-	f.Lock()
-	defer f.Unlock()
 
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
+	f.Lock()
 	if f.rateLimiter.Remaining(pid.String()) < int64(count) {
 		log.WithField("peer", pid).Debug("Slowing down for rate limit")
 		time.Sleep(f.rateLimiter.TillEmpty(pid.String()))
@@ -261,6 +231,7 @@ func (f *blocksFetcher) requestBlocks(
 		"count": count,
 		"head":  fmt.Sprintf("%#x", root),
 	}).Debug("Requesting blocks")
+	f.Unlock()
 
 	// Send request.
 	req := &p2ppb.BeaconBlocksByRangeRequest{

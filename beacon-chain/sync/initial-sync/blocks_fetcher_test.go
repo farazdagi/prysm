@@ -2,9 +2,7 @@ package initialsync
 
 import (
 	"context"
-	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,9 +17,7 @@ import (
 	p2ppb "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/sliceutil"
-	"github.com/prysmaticlabs/prysm/shared/testutil"
 	"github.com/sirupsen/logrus"
-	logTest "github.com/sirupsen/logrus/hooks/test"
 )
 
 func TestBlocksFetcherInitStartStop(t *testing.T) {
@@ -365,8 +361,12 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 
 						if resp.err != nil {
 							log.WithError(resp.err).Debug("Block fetcher returned error")
-							if resp.err.Error() == "request produced error, retry scheduled: bad" {
-								continue
+							if resp.err.Error() == "bad" { // reschedule
+								err = fetcher.scheduleRequest(ctx, resp.start, resp.count)
+								if err == nil {
+									continue
+								}
+								t.Error(err)
 							}
 						} else {
 							unionRespBlocks = append(unionRespBlocks, resp.blocks...)
@@ -385,7 +385,7 @@ func TestBlocksFetcherRoundRobin(t *testing.T) {
 
 			maxExpectedBlocks := uint64(0)
 			for _, req := range tt.requests {
-				err = fetcher.scheduleRequest(context.Background(), req.start, req.count)
+				err = fetcher.scheduleRequest(ctx, req.start, req.count)
 				if err != nil {
 					t.Error(err)
 				}
@@ -548,7 +548,6 @@ func TestBlocksFetcherRequestBlocks(t *testing.T) {
 		},
 	}
 
-	hook := logTest.NewGlobal()
 	mc, p2p, beaconDB := initializeTestServices(t, chainConfig.expectedBlockSlots, chainConfig.peers)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -568,24 +567,6 @@ func TestBlocksFetcherRequestBlocks(t *testing.T) {
 	}
 	if len(blocks) != blockBatchSize {
 		t.Errorf("incorrect number of blocks returned, expected: %v, got: %v", blockBatchSize, len(blocks))
-	}
-
-	// Test request fail over (success).
-	err = fetcher.p2p.Disconnect(peers[0])
-	if err != nil {
-		t.Error(err)
-	}
-	hook.Reset()
-	request := &fetchRequestParams{
-		ctx:   ctx,
-		start: 1,
-		count: blockBatchSize,
-	}
-	response := fetcher.handleRequest(request.ctx, request)
-	testutil.AssertLogsContain(t, hook, "Retrying request")
-	expectedErr := fmt.Sprintf("failed to dial %v: no addresses", peers[0])
-	if response.err != nil && !strings.Contains(response.err.Error(), expectedErr) {
-		t.Errorf("unexpected error: want: %v, got: %v", expectedErr, response.err)
 	}
 
 	// Test context cancellation.
