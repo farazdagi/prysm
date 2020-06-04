@@ -9,6 +9,8 @@ test -z "$(gofmt -l -d -e $1)"
 SUCCESS=$?
 set -e
 
+echo "SOME output"
+
 # Return if `go fmt` passes.
 if [ $SUCCESS -eq 0 ]; then
     echo "::set-output name=result::gofmt OK"
