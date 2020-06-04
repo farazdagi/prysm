@@ -31,7 +31,8 @@ jobs:
 
       - name: Gofmt checker
         uses: ./.github/actions/gofmt
-        path: ./
+        with:
+          path: ./
 
 # Tests run via Bazel for now...
 #      - name: Test
