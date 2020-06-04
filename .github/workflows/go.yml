@@ -30,7 +30,7 @@ jobs:
         run: go build -v ./...
 
       - name: Gofmt checker
-        uses: actions/gofmt@v1
+        uses: ./.github/actions/gofmt
         path: ./
 
 # Tests run via Bazel for now...

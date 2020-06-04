@@ -1,10 +1,7 @@
 #!/bin/sh -l
-set -ex
+set -e
 
-# Build diff set to check.
-#gofiles=$(git diff --name-only --diff-filter=ACM master HEAD | grep '\.go$')
-#[ -z "$gofiles" ] && exit 0
-
+cd $GITHUB_WORKSPACE
 
 # Check if any files are not formatted.
 set +e
