@@ -1,0 +1,15 @@
+name: 'Gofmt checker'
+description: 'Checks that all project files have been properly formatted.'
+inputs:
+  path:
+    description: 'Path to check'
+    required: true
+    default: './'
+outputs:
+  result:
+    description: 'Execution output'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - ${{ inputs.path }}
