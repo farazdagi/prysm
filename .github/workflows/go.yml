@@ -10,7 +10,6 @@ jobs:
 
   build:
     name: Build
-    id: build
     runs-on: ubuntu-latest
     steps:
 
@@ -37,7 +36,7 @@ jobs:
           path: ./
 
       - name: Report gofmt checker results
-        run: echo "gofmt ${{ build.gofmt.outputs.result }}"
+        run: echo "gofmt ${{ steps.gofmt.outputs.result }}"
 
 # Tests run via Bazel for now...
 #      - name: Test
