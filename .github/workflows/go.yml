@@ -21,9 +21,6 @@ jobs:
         with:
           path: ./
 
-      - name: Report gofmt checker results
-        run: echo "gofmt ${{ steps.gofmt.outputs.result }}"
-
   build:
     name: Build
     runs-on: ubuntu-latest

@@ -4,19 +4,12 @@ set -e
 cd $GITHUB_WORKSPACE
 
 # Check if any files are not formatted.
-set +e
-test -z "$(gofmt -l -d -e $1)"
-SUCCESS=$?
-set -e
-
-echo "SOME output"
+nonformatted="$(gofmt -l $1 2>&1)"
 
 # Return if `go fmt` passes.
-if [ $SUCCESS -eq 0 ]; then
-    echo "::set-output name=result::gofmt OK"
-    exit 0
-fi
+[ -z "$nonformatted" ] && exit 0
 
 # Notify of issues with formatting.
-echo "::set-output name=result::gofmt FAIL"
+echo "Following files need to be properly formatted:"
+echo "$nonformatted"
 exit 1
