@@ -25,5 +25,5 @@ done
 # Run goimports on newly generated protos until gogo protobuf's proto-gen-go
 # formats imports properly.
 # https://github.com/gogo/protobuf/issues/554
-goimports -w proto/**/*.pb.go
+# goimports -w proto/**/*.pb.go
 gofmt -s -w proto/

@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/prysmaticlabs/prysm/shared/params"
+	"github.com/prysmaticlabs/prysm/shared/types"
 	"go.opencensus.io/trace"
 )
 
@@ -57,9 +58,9 @@ func (s *Store) head(ctx context.Context, justifiedRoot [32]byte) ([32]byte, err
 // insert registers a new block node to the fork choice store's node list.
 // It then updates the new node's parent with best child and descendant node.
 func (s *Store) insert(ctx context.Context,
-	slot uint64,
+	slot types.Slot,
 	root, parent, graffiti [32]byte,
-	justifiedEpoch, finalizedEpoch uint64) error {
+	justifiedEpoch, finalizedEpoch types.Epoch) error {
 	ctx, span := trace.StartSpan(ctx, "protoArrayForkChoice.insert")
 	defer span.End()
 
@@ -111,7 +112,7 @@ func (s *Store) insert(ctx context.Context,
 // and its best child. For each node, it updates the weight with input delta and
 // back propagate the nodes delta to its parents delta. After scoring changes,
 // the best child is then updated along with best descendant.
-func (s *Store) applyWeightChanges(ctx context.Context, justifiedEpoch, finalizedEpoch uint64, delta []int) error {
+func (s *Store) applyWeightChanges(ctx context.Context, justifiedEpoch, finalizedEpoch types.Epoch, delta []int) error {
 	ctx, span := trace.StartSpan(ctx, "protoArrayForkChoice.applyWeightChanges")
 	defer span.End()
 

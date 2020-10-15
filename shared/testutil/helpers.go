@@ -13,20 +13,21 @@ import (
 	"github.com/prysmaticlabs/prysm/shared/bls"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/rand"
+	"github.com/prysmaticlabs/prysm/shared/types"
 )
 
 // RandaoReveal returns a signature of the requested epoch using the beacon proposer private key.
-func RandaoReveal(beaconState *stateTrie.BeaconState, epoch uint64, privKeys []bls.SecretKey) ([]byte, error) {
+func RandaoReveal(beaconState *stateTrie.BeaconState, epoch types.Epoch, privKeys []bls.SecretKey) ([]byte, error) {
 	// We fetch the proposer's index as that is whom the RANDAO will be verified against.
 	proposerIdx, err := helpers.BeaconProposerIndex(beaconState)
 	if err != nil {
 		return []byte{}, errors.Wrap(err, "could not get beacon proposer index")
 	}
 	buf := make([]byte, 32)
-	binary.LittleEndian.PutUint64(buf, epoch)
+	binary.LittleEndian.PutUint64(buf, epoch.Uint64())
 
 	// We make the previous validator's index sign the message instead of the proposer.
-	return helpers.ComputeDomainAndSign(beaconState, epoch, epoch, params.BeaconConfig().DomainRandao, privKeys[proposerIdx])
+	return helpers.ComputeDomainAndSign(beaconState, epoch, epoch.Uint64(), params.BeaconConfig().DomainRandao, privKeys[proposerIdx])
 }
 
 // BlockSignature calculates the post-state root of the block and returns the signature.
@@ -52,7 +53,7 @@ func BlockSignature(
 	// Temporarily increasing the beacon state slot here since BeaconProposerIndex is a
 	// function deterministic on beacon state slot.
 	currentSlot := bState.Slot()
-	if err := bState.SetSlot(block.Slot); err != nil {
+	if err := bState.SetSlot(types.ToSlot(block.Slot)); err != nil {
 		return nil, err
 	}
 	proposerIdx, err := helpers.BeaconProposerIndex(bState)

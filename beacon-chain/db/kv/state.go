@@ -9,6 +9,7 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/state"
 	pb "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
 	"github.com/prysmaticlabs/prysm/shared/bytesutil"
+	"github.com/prysmaticlabs/prysm/shared/types"
 	bolt "go.etcd.io/bbolt"
 	"go.opencensus.io/trace"
 )
@@ -238,7 +239,7 @@ func (s *Store) stateBytes(ctx context.Context, blockRoot [32]byte) ([]byte, err
 }
 
 // slotByBlockRoot retrieves the corresponding slot of the input block root.
-func slotByBlockRoot(ctx context.Context, tx *bolt.Tx, blockRoot []byte) (uint64, error) {
+func slotByBlockRoot(ctx context.Context, tx *bolt.Tx, blockRoot []byte) (types.Slot, error) {
 	ctx, span := trace.StartSpan(ctx, "BeaconDB.slotByBlockRoot")
 	defer span.End()
 
@@ -264,7 +265,7 @@ func slotByBlockRoot(ctx context.Context, tx *bolt.Tx, blockRoot []byte) (uint64
 			if s == nil {
 				return 0, errors.New("state can't be nil")
 			}
-			return s.Slot, nil
+			return types.ToSlot(s.Slot), nil
 		}
 		b := &ethpb.SignedBeaconBlock{}
 		err := decode(ctx, enc, b)
@@ -274,20 +275,20 @@ func slotByBlockRoot(ctx context.Context, tx *bolt.Tx, blockRoot []byte) (uint64
 		if b.Block == nil {
 			return 0, errors.New("block can't be nil")
 		}
-		return b.Block.Slot, nil
+		return types.ToSlot(b.Block.Slot), nil
 	}
 	stateSummary := &pb.StateSummary{}
 	if err := decode(ctx, enc, stateSummary); err != nil {
 		return 0, err
 	}
-	return stateSummary.Slot, nil
+	return types.ToSlot(stateSummary.Slot), nil
 }
 
 // HighestSlotStatesBelow returns the states with the highest slot below the input slot
 // from the db. Ideally there should just be one state per slot, but given validator
 // can double propose, a single slot could have multiple block roots and
 // results states. This returns a list of states.
-func (s *Store) HighestSlotStatesBelow(ctx context.Context, slot uint64) ([]*state.BeaconState, error) {
+func (s *Store) HighestSlotStatesBelow(ctx context.Context, slot types.Slot) ([]*state.BeaconState, error) {
 	ctx, span := trace.StartSpan(ctx, "BeaconDB.HighestSlotStatesBelow")
 	defer span.End()
 
@@ -300,7 +301,7 @@ func (s *Store) HighestSlotStatesBelow(ctx context.Context, slot uint64) ([]*sta
 			if root == nil {
 				continue
 			}
-			if key >= slot {
+			if key >= slot.Uint64() {
 				break
 			}
 			best = root
@@ -331,7 +332,7 @@ func (s *Store) HighestSlotStatesBelow(ctx context.Context, slot uint64) ([]*sta
 // createBlockIndicesFromBlock takes in a beacon block and returns
 // a map of bolt DB index buckets corresponding to each particular key for indices for
 // data, such as (shard indices bucket -> shard 5).
-func createStateIndicesFromStateSlot(ctx context.Context, slot uint64) map[string][]byte {
+func createStateIndicesFromStateSlot(ctx context.Context, slot types.Slot) map[string][]byte {
 	ctx, span := trace.StartSpan(ctx, "BeaconDB.createStateIndicesFromState")
 	defer span.End()
 	indicesByBucket := make(map[string][]byte)
@@ -342,7 +343,7 @@ func createStateIndicesFromStateSlot(ctx context.Context, slot uint64) map[strin
 	}
 
 	indices := [][]byte{
-		bytesutil.Uint64ToBytesBigEndian(slot),
+		bytesutil.Uint64ToBytesBigEndian(slot.Uint64()),
 	}
 	for i := 0; i < len(buckets); i++ {
 		indicesByBucket[string(buckets[i])] = indices[i]

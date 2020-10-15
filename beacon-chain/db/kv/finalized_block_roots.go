@@ -10,6 +10,7 @@ import (
 	dbpb "github.com/prysmaticlabs/prysm/proto/beacon/db"
 	"github.com/prysmaticlabs/prysm/shared/bytesutil"
 	"github.com/prysmaticlabs/prysm/shared/traceutil"
+	"github.com/prysmaticlabs/prysm/shared/types"
 	bolt "go.etcd.io/bbolt"
 	"go.opencensus.io/trace"
 )
@@ -57,8 +58,8 @@ func (s *Store) updateFinalizedBlockRoots(ctx context.Context, tx *bolt.Tx, chec
 	}
 
 	blockRoots, err := s.BlockRoots(ctx, filters.NewFilter().
-		SetStartEpoch(previousFinalizedCheckpoint.Epoch).
-		SetEndEpoch(checkpoint.Epoch+1),
+		SetStartEpoch(types.ToEpoch(previousFinalizedCheckpoint.Epoch)).
+		SetEndEpoch(types.ToEpoch(checkpoint.Epoch+1)),
 	)
 	if err != nil {
 		traceutil.AnnotateError(span, err)
@@ -129,7 +130,7 @@ func (s *Store) updateFinalizedBlockRoots(ctx context.Context, tx *bolt.Tx, chec
 	}
 
 	// Upsert blocks from the current finalized epoch.
-	roots, err := s.BlockRoots(ctx, filters.NewFilter().SetStartEpoch(checkpoint.Epoch).SetEndEpoch(checkpoint.Epoch+1))
+	roots, err := s.BlockRoots(ctx, filters.NewFilter().SetStartEpoch(types.ToEpoch(checkpoint.Epoch)).SetEndEpoch(types.ToEpoch(checkpoint.Epoch+1)))
 	if err != nil {
 		traceutil.AnnotateError(span, err)
 		return err

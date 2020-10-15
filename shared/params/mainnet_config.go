@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/prysmaticlabs/prysm/shared/bytesutil"
+	"github.com/prysmaticlabs/prysm/shared/types"
 )
 
 // MainnetConfig returns the configuration to be used in the main network.
@@ -136,10 +137,10 @@ var mainnetBeaconConfig = &BeaconChainConfig{
 	SafetyDecay: 10,
 
 	// Fork related values.
-	GenesisForkVersion:  []byte{0, 0, 0, 0},
-	NextForkVersion:     []byte{0, 0, 0, 0}, // Set to GenesisForkVersion unless there is a scheduled fork
-	NextForkEpoch:       1<<64 - 1,          // Set to FarFutureEpoch unless there is a scheduled fork.
-	ForkVersionSchedule: map[uint64][]byte{
+	GenesisForkVersion: []byte{0, 0, 0, 0},
+	NextForkVersion:    []byte{0, 0, 0, 0}, // Set to GenesisForkVersion unless there is a scheduled fork
+	NextForkEpoch:      1<<64 - 1,          // Set to FarFutureEpoch unless there is a scheduled fork.
+	ForkVersionSchedule: map[types.Epoch][]byte{
 		// Any further forks must be specified here by their epoch number.
 	},
 }

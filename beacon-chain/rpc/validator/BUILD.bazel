@@ -50,6 +50,7 @@ go_library(
         "//shared/timeutils:go_default_library",
         "//shared/traceutil:go_default_library",
         "//shared/trieutil:go_default_library",
+        "//shared/types:go_default_library",
         "@com_github_ferranbt_fastssz//:go_default_library",
         "@com_github_gogo_protobuf//types:go_default_library",
         "@com_github_pkg_errors//:go_default_library",

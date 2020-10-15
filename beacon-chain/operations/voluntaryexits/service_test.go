@@ -12,6 +12,7 @@ import (
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/testutil/assert"
 	"github.com/prysmaticlabs/prysm/shared/testutil/require"
+	"github.com/prysmaticlabs/prysm/shared/types"
 )
 
 func TestPool_InsertVoluntaryExit(t *testing.T) {
@@ -197,16 +198,16 @@ func TestPool_InsertVoluntaryExit(t *testing.T) {
 	ctx := context.Background()
 	validators := []*ethpb.Validator{
 		{ // 0
-			ExitEpoch: params.BeaconConfig().FarFutureEpoch,
+			ExitEpoch: params.BeaconConfig().FarFutureEpoch.Uint64(),
 		},
 		{ // 1
-			ExitEpoch: params.BeaconConfig().FarFutureEpoch,
+			ExitEpoch: params.BeaconConfig().FarFutureEpoch.Uint64(),
 		},
 		{ // 2 - Already exited.
 			ExitEpoch: 15,
 		},
 		{ // 3
-			ExitEpoch: params.BeaconConfig().FarFutureEpoch,
+			ExitEpoch: params.BeaconConfig().FarFutureEpoch.Uint64(),
 		},
 	}
 	for _, tt := range tests {
@@ -334,7 +335,7 @@ func TestPool_PendingExits(t *testing.T) {
 		pending []*ethpb.SignedVoluntaryExit
 	}
 	type args struct {
-		slot uint64
+		slot types.Slot
 	}
 	tests := []struct {
 		name   string
@@ -448,7 +449,10 @@ func TestPool_PendingExits(t *testing.T) {
 			p := &Pool{
 				pending: tt.fields.pending,
 			}
-			s, err := beaconstate.InitializeFromProtoUnsafe(&p2ppb.BeaconState{Validators: []*ethpb.Validator{{ExitEpoch: params.BeaconConfig().FarFutureEpoch}}})
+			s, err := beaconstate.InitializeFromProtoUnsafe(&p2ppb.BeaconState{
+				Validators: []*ethpb.Validator{
+					{ExitEpoch: params.BeaconConfig().FarFutureEpoch.Uint64()},
+				}})
 			require.NoError(t, err)
 			if got := p.PendingExits(s, tt.args.slot); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("PendingExits() = %v, want %v", got, tt.want)

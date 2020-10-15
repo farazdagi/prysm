@@ -10,6 +10,7 @@ import (
 	beaconstate "github.com/prysmaticlabs/prysm/beacon-chain/state"
 	"github.com/prysmaticlabs/prysm/shared/mathutil"
 	"github.com/prysmaticlabs/prysm/shared/params"
+	"github.com/prysmaticlabs/prysm/shared/types"
 	"go.opencensus.io/trace"
 )
 
@@ -32,7 +33,7 @@ func NewPool() *Pool {
 
 // PendingExits returns exits that are ready for inclusion at the given slot. This method will not
 // return more than the block enforced MaxVoluntaryExits.
-func (p *Pool) PendingExits(state *beaconstate.BeaconState, slot uint64) []*ethpb.SignedVoluntaryExit {
+func (p *Pool) PendingExits(state *beaconstate.BeaconState, slot types.Slot) []*ethpb.SignedVoluntaryExit {
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 
@@ -40,7 +41,7 @@ func (p *Pool) PendingExits(state *beaconstate.BeaconState, slot uint64) []*ethp
 	// array cannot exceed the max and is typically less than the max value.
 	pending := make([]*ethpb.SignedVoluntaryExit, 0, mathutil.Min(uint64(len(p.pending)), params.BeaconConfig().MaxVoluntaryExits))
 	for _, e := range p.pending {
-		if e.Exit.Epoch > helpers.SlotToEpoch(slot) {
+		if e.Exit.Epoch > helpers.SlotToEpoch(slot).Uint64() {
 			continue
 		}
 		if v, err := state.ValidatorAtIndexReadOnly(e.Exit.ValidatorIndex); err == nil && v.ExitEpoch() == params.BeaconConfig().FarFutureEpoch {

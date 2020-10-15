@@ -15,7 +15,7 @@ import (
 var genesisBlockRoot = bytesutil.ToBytes32([]byte{'G', 'E', 'N', 'E', 'S', 'I', 'S'})
 
 func TestStore_IsFinalizedBlock(t *testing.T) {
-	slotsPerEpoch := params.BeaconConfig().SlotsPerEpoch
+	slotsPerEpoch := params.BeaconConfig().SlotsPerEpoch.Uint64()
 	db := setupDB(t)
 	ctx := context.Background()
 
@@ -74,7 +74,7 @@ func TestStore_IsFinalizedBlockGenesis(t *testing.T) {
 // be c, e, and g. In this scenario, c was a finalized checkpoint root but no block built upon it so
 // it should not be considered "final and canonical" in the view at slot 6.
 func TestStore_IsFinalized_ForkEdgeCase(t *testing.T) {
-	slotsPerEpoch := params.BeaconConfig().SlotsPerEpoch
+	slotsPerEpoch := params.BeaconConfig().SlotsPerEpoch.Uint64()
 	blocks0 := makeBlocks(t, slotsPerEpoch*0, slotsPerEpoch, genesisBlockRoot)
 	blocks1 := append(
 		makeBlocks(t, slotsPerEpoch*1, 1, bytesutil.ToBytes32(sszRootOrDie(t, blocks0[len(blocks0)-1]))), // No block builds off of the first block in epoch.
@@ -129,7 +129,7 @@ func TestStore_IsFinalized_ForkEdgeCase(t *testing.T) {
 }
 
 func TestStore_IsFinalizedChildBlock(t *testing.T) {
-	slotsPerEpoch := params.BeaconConfig().SlotsPerEpoch
+	slotsPerEpoch := params.BeaconConfig().SlotsPerEpoch.Uint64()
 	db := setupDB(t)
 	ctx := context.Background()
 

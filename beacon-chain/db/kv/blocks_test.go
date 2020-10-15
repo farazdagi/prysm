@@ -13,6 +13,7 @@ import (
 	"github.com/prysmaticlabs/prysm/shared/testutil"
 	"github.com/prysmaticlabs/prysm/shared/testutil/assert"
 	"github.com/prysmaticlabs/prysm/shared/testutil/require"
+	"github.com/prysmaticlabs/prysm/shared/types"
 )
 
 func TestStore_SaveBlock_NoDuplicates(t *testing.T) {
@@ -234,7 +235,7 @@ func TestStore_Blocks_VerifyBlockRoots(t *testing.T) {
 	require.NoError(t, db.SaveBlock(ctx, b1))
 	require.NoError(t, db.SaveBlock(ctx, b2))
 
-	filter := filters.NewFilter().SetStartSlot(b1.Block.Slot).SetEndSlot(b2.Block.Slot)
+	filter := filters.NewFilter().SetStartSlot(types.ToSlot(b1.Block.Slot)).SetEndSlot(types.ToSlot(b2.Block.Slot))
 	roots, err := db.BlockRoots(ctx, filter)
 	require.NoError(t, err)
 
@@ -259,7 +260,7 @@ func TestStore_Blocks_Retrieve_SlotRange(t *testing.T) {
 
 func TestStore_Blocks_Retrieve_Epoch(t *testing.T) {
 	db := setupDB(t)
-	slots := params.BeaconConfig().SlotsPerEpoch * 7
+	slots := params.BeaconConfig().SlotsPerEpoch.Uint64() * 7
 	totalBlocks := make([]*ethpb.SignedBeaconBlock, slots)
 	for i := uint64(0); i < slots; i++ {
 		b := testutil.NewBeaconBlock()

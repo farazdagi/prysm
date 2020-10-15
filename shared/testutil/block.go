@@ -16,6 +16,7 @@ import (
 	"github.com/prysmaticlabs/prysm/shared/bytesutil"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/rand"
+	"github.com/prysmaticlabs/prysm/shared/types"
 )
 
 // BlockGenConfig is used to define the requested conditions
@@ -87,7 +88,7 @@ func GenerateFullBlock(
 	bState *stateTrie.BeaconState,
 	privs []bls.SecretKey,
 	conf *BlockGenConfig,
-	slot uint64,
+	slot types.Slot,
 ) (*ethpb.SignedBeaconBlock, error) {
 	ctx := context.Background()
 	currentSlot := bState.Slot()
@@ -178,7 +179,7 @@ func GenerateFullBlock(
 	}
 
 	block := &ethpb.BeaconBlock{
-		Slot:          slot,
+		Slot:          slot.Uint64(),
 		ParentRoot:    parentRoot[:],
 		ProposerIndex: idx,
 		Body: &ethpb.BeaconBlockBody{
@@ -213,7 +214,7 @@ func GenerateProposerSlashingForValidator(
 	header1 := &ethpb.SignedBeaconBlockHeader{
 		Header: &ethpb.BeaconBlockHeader{
 			ProposerIndex: idx,
-			Slot:          bState.Slot(),
+			Slot:          bState.Slot().Uint64(),
 			BodyRoot:      bytesutil.PadTo([]byte{0, 1, 0}, 32),
 			StateRoot:     make([]byte, 32),
 			ParentRoot:    make([]byte, 32),
@@ -229,7 +230,7 @@ func GenerateProposerSlashingForValidator(
 	header2 := &ethpb.SignedBeaconBlockHeader{
 		Header: &ethpb.BeaconBlockHeader{
 			ProposerIndex: idx,
-			Slot:          bState.Slot(),
+			Slot:          bState.Slot().Uint64(),
 			BodyRoot:      bytesutil.PadTo([]byte{0, 2, 0}, 32),
 			StateRoot:     make([]byte, 32),
 			ParentRoot:    make([]byte, 32),
@@ -276,15 +277,15 @@ func GenerateAttesterSlashingForValidator(
 
 	att1 := &ethpb.IndexedAttestation{
 		Data: &ethpb.AttestationData{
-			Slot:            bState.Slot(),
+			Slot:            bState.Slot().Uint64(),
 			CommitteeIndex:  0,
 			BeaconBlockRoot: make([]byte, 32),
 			Target: &ethpb.Checkpoint{
-				Epoch: currentEpoch,
+				Epoch: currentEpoch.Uint64(),
 				Root:  params.BeaconConfig().ZeroHash[:],
 			},
 			Source: &ethpb.Checkpoint{
-				Epoch: currentEpoch + 1,
+				Epoch: currentEpoch.Uint64() + 1,
 				Root:  params.BeaconConfig().ZeroHash[:],
 			},
 		},
@@ -298,15 +299,15 @@ func GenerateAttesterSlashingForValidator(
 
 	att2 := &ethpb.IndexedAttestation{
 		Data: &ethpb.AttestationData{
-			Slot:            bState.Slot(),
+			Slot:            bState.Slot().Uint64(),
 			CommitteeIndex:  0,
 			BeaconBlockRoot: make([]byte, 32),
 			Target: &ethpb.Checkpoint{
-				Epoch: currentEpoch,
+				Epoch: currentEpoch.Uint64(),
 				Root:  params.BeaconConfig().ZeroHash[:],
 			},
 			Source: &ethpb.Checkpoint{
-				Epoch: currentEpoch,
+				Epoch: currentEpoch.Uint64(),
 				Root:  params.BeaconConfig().ZeroHash[:],
 			},
 		},
@@ -354,7 +355,9 @@ func generateAttesterSlashings(
 // for the same data with their aggregation bits split uniformly.
 //
 // If you request 4 attestations, but there are 8 committees, you will get 4 fully aggregated attestations.
-func GenerateAttestations(bState *stateTrie.BeaconState, privs []bls.SecretKey, numToGen, slot uint64, randomRoot bool) ([]*ethpb.Attestation, error) {
+func GenerateAttestations(bState *stateTrie.BeaconState, privs []bls.SecretKey, numToGen uint64,
+	slot types.Slot, randomRoot bool,
+) ([]*ethpb.Attestation, error) {
 	currentEpoch := helpers.SlotToEpoch(slot)
 	var attestations []*ethpb.Attestation
 	generateHeadState := false
@@ -443,12 +446,12 @@ func GenerateAttestations(bState *stateTrie.BeaconState, privs []bls.SecretKey, 
 		}
 
 		attData := &ethpb.AttestationData{
-			Slot:            slot,
+			Slot:            slot.Uint64(),
 			CommitteeIndex:  c,
 			BeaconBlockRoot: headRoot,
 			Source:          bState.CurrentJustifiedCheckpoint(),
 			Target: &ethpb.Checkpoint{
-				Epoch: currentEpoch,
+				Epoch: currentEpoch.Uint64(),
 				Root:  targetRoot,
 			},
 		}
@@ -519,7 +522,7 @@ func generateVoluntaryExits(
 		}
 		exit := &ethpb.SignedVoluntaryExit{
 			Exit: &ethpb.VoluntaryExit{
-				Epoch:          helpers.PrevEpoch(bState),
+				Epoch:          helpers.PrevEpoch(bState).Uint64(),
 				ValidatorIndex: valIndex,
 			},
 		}

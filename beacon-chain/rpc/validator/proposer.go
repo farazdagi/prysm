@@ -27,6 +27,7 @@ import (
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/rand"
 	"github.com/prysmaticlabs/prysm/shared/trieutil"
+	"github.com/prysmaticlabs/prysm/shared/types"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
@@ -69,7 +70,7 @@ func (vs *Server) GetBlock(ctx context.Context, req *ethpb.BlockRequest) (*ethpb
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not get head state %v", err)
 	}
-	head, err = state.ProcessSlots(ctx, head, req.Slot)
+	head, err = state.ProcessSlots(ctx, head, types.ToSlot(req.Slot))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not advance slot to calculate proposer index: %v", err)
 	}
@@ -78,7 +79,7 @@ func (vs *Server) GetBlock(ctx context.Context, req *ethpb.BlockRequest) (*ethpb
 	if featureconfig.Get().EnableEth1DataMajorityVote {
 		eth1Data, err = vs.eth1DataMajorityVote(ctx, head)
 	} else {
-		eth1Data, err = vs.eth1Data(ctx, req.Slot)
+		eth1Data, err = vs.eth1Data(ctx, types.ToSlot(req.Slot))
 	}
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not get ETH1 data: %v", err)
@@ -119,7 +120,7 @@ func (vs *Server) GetBlock(ctx context.Context, req *ethpb.BlockRequest) (*ethpb
 			RandaoReveal:      req.RandaoReveal,
 			ProposerSlashings: vs.SlashingsPool.PendingProposerSlashings(ctx, head),
 			AttesterSlashings: vs.SlashingsPool.PendingAttesterSlashings(ctx, head),
-			VoluntaryExits:    vs.ExitPool.PendingExits(head, req.Slot),
+			VoluntaryExits:    vs.ExitPool.PendingExits(head, types.ToSlot(req.Slot)),
 			Graffiti:          graffiti[:],
 		},
 	}
@@ -176,7 +177,7 @@ func (vs *Server) ProposeBlock(ctx context.Context, blk *ethpb.SignedBeaconBlock
 //  - Determine the most recent eth1 block before that timestamp.
 //  - Subtract that eth1block.number by ETH1_FOLLOW_DISTANCE.
 //  - This is the eth1block to use for the block proposal.
-func (vs *Server) eth1Data(ctx context.Context, slot uint64) (*ethpb.Eth1Data, error) {
+func (vs *Server) eth1Data(ctx context.Context, slot types.Slot) (*ethpb.Eth1Data, error) {
 	ctx, cancel := context.WithTimeout(ctx, eth1dataTimeout)
 	defer cancel()
 
@@ -295,11 +296,10 @@ func (vs *Server) eth1DataMajorityVote(ctx context.Context, beaconState *stateTr
 	return &chosenVote.data.eth1Data, nil
 }
 
-func (vs *Server) slotStartTime(slot uint64) uint64 {
+func (vs *Server) slotStartTime(slot types.Slot) uint64 {
 	startTime, _ := vs.Eth1InfoFetcher.Eth2GenesisPowchainInfo()
-	startTime +=
-		(slot - (slot % (params.BeaconConfig().EpochsPerEth1VotingPeriod * params.BeaconConfig().SlotsPerEpoch))) *
-			params.BeaconConfig().SecondsPerSlot
+	slots := params.BeaconConfig().SlotsPerEpoch.Mul(params.BeaconConfig().EpochsPerEth1VotingPeriod.Uint64())
+	startTime += (slot - (slot % slots)).Uint64() * params.BeaconConfig().SecondsPerSlot
 	return startTime
 }
 
@@ -363,7 +363,7 @@ func chosenEth1DataMajorityVote(votes []eth1DataSingleVote) eth1DataAggregatedVo
 	return currentVote
 }
 
-func (vs *Server) mockETH1DataVote(ctx context.Context, slot uint64) (*ethpb.Eth1Data, error) {
+func (vs *Server) mockETH1DataVote(ctx context.Context, slot types.Slot) (*ethpb.Eth1Data, error) {
 	if !eth1DataNotification {
 		log.Warn("Beacon Node is no longer connected to an ETH1 chain, so ETH1 data votes are now mocked.")
 		eth1DataNotification = true
@@ -377,13 +377,13 @@ func (vs *Server) mockETH1DataVote(ctx context.Context, slot uint64) (*ethpb.Eth
 	//   DepositCount = state.eth1_deposit_index,
 	//   BlockHash = hash(hash(current_epoch + slot_in_voting_period)),
 	// )
-	slotInVotingPeriod := slot % (params.BeaconConfig().EpochsPerEth1VotingPeriod * params.BeaconConfig().SlotsPerEpoch)
+	slotInVotingPeriod := slot % params.BeaconConfig().SlotsPerEpoch.Mul(params.BeaconConfig().EpochsPerEth1VotingPeriod.Uint64())
 	headState, err := vs.HeadFetcher.HeadState(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var enc []byte
-	enc = fastssz.MarshalUint64(enc, helpers.SlotToEpoch(slot)+slotInVotingPeriod)
+	enc = fastssz.MarshalUint64(enc, helpers.SlotToEpoch(slot).Uint64()+slotInVotingPeriod.Uint64())
 	depRoot := hashutil.Hash(enc)
 	blockHash := hashutil.Hash(depRoot[:])
 	return &ethpb.Eth1Data{

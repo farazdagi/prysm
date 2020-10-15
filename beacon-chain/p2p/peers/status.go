@@ -39,6 +39,7 @@ import (
 	pb "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/prysmaticlabs/prysm/shared/timeutils"
+	"github.com/prysmaticlabs/prysm/shared/types"
 )
 
 const (
@@ -481,18 +482,18 @@ func (p *Status) BestFinalized(maxPeers int, ourFinalizedEpoch uint64) (uint64, 
 
 // BestNonFinalized returns the highest known epoch, which is higher than ours, and is shared
 // by at least minPeers.
-func (p *Status) BestNonFinalized(minPeers int, ourFinalizedEpoch uint64) (uint64, []peer.ID) {
+func (p *Status) BestNonFinalized(minPeers int, ourFinalizedEpoch types.Epoch) (types.Epoch, []peer.ID) {
 	connected := p.Connected()
-	epochVotes := make(map[uint64]uint64)
-	pidEpoch := make(map[peer.ID]uint64, len(connected))
+	epochVotes := make(map[types.Epoch]uint64)
+	pidEpoch := make(map[peer.ID]types.Epoch, len(connected))
 	pidHead := make(map[peer.ID]uint64, len(connected))
 	potentialPIDs := make([]peer.ID, 0, len(connected))
 
-	ourFinalizedSlot := ourFinalizedEpoch * params.BeaconConfig().SlotsPerEpoch
+	ourFinalizedSlot := params.BeaconConfig().SlotsPerEpoch.Mul(ourFinalizedEpoch.Uint64())
 	for _, pid := range connected {
 		peerChainState, err := p.ChainState(pid)
-		if err == nil && peerChainState != nil && peerChainState.HeadSlot > ourFinalizedSlot {
-			epoch := helpers.SlotToEpoch(peerChainState.HeadSlot)
+		if err == nil && peerChainState != nil && peerChainState.HeadSlot > ourFinalizedSlot.Uint64() {
+			epoch := helpers.SlotToEpoch(types.ToSlot(peerChainState.HeadSlot))
 			epochVotes[epoch]++
 			pidEpoch[pid] = epoch
 			pidHead[pid] = peerChainState.HeadSlot
@@ -501,7 +502,7 @@ func (p *Status) BestNonFinalized(minPeers int, ourFinalizedEpoch uint64) (uint6
 	}
 
 	// Select the target epoch, which has enough peers' votes (>= minPeers).
-	var targetEpoch uint64
+	var targetEpoch types.Epoch
 	for epoch, votes := range epochVotes {
 		if votes >= uint64(minPeers) && targetEpoch < epoch {
 			targetEpoch = epoch
@@ -525,10 +526,10 @@ func (p *Status) BestNonFinalized(minPeers int, ourFinalizedEpoch uint64) (uint6
 }
 
 // HighestEpoch returns the highest epoch reported epoch amongst peers.
-func (p *Status) HighestEpoch() uint64 {
+func (p *Status) HighestEpoch() types.Epoch {
 	p.store.RLock()
 	defer p.store.RUnlock()
-	var highestSlot uint64
+	var highestSlot types.Slot
 	for _, peerData := range p.store.Peers() {
 		if peerData != nil && peerData.ChainState != nil && peerData.ChainState.HeadSlot > highestSlot {
 			highestSlot = peerData.ChainState.HeadSlot

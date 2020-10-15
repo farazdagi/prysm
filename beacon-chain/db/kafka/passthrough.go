@@ -9,6 +9,7 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/state"
 	"github.com/prysmaticlabs/prysm/proto/beacon/db"
 	pb "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
+	"github.com/prysmaticlabs/prysm/shared/types"
 )
 
 // DatabasePath -- passthrough.
@@ -223,12 +224,12 @@ func (e Exporter) SavePowchainData(ctx context.Context, data *db.ETH1ChainData) 
 
 // ArchivedPointRoot -- passthrough
 func (e Exporter) ArchivedPointRoot(ctx context.Context, index uint64) [32]byte {
-	return e.db.ArchivedPointRoot(ctx, index)
+	return e.db.ArchivedPointRoot(ctx, types.ToSlot(index))
 }
 
 // HasArchivedPoint -- passthrough
 func (e Exporter) HasArchivedPoint(ctx context.Context, index uint64) bool {
-	return e.db.HasArchivedPoint(ctx, index)
+	return e.db.HasArchivedPoint(ctx, types.ToSlot(index))
 }
 
 // LastArchivedRoot -- passthrough
@@ -237,12 +238,12 @@ func (e Exporter) LastArchivedRoot(ctx context.Context) [32]byte {
 }
 
 // HighestSlotBlocksBelow -- passthrough
-func (e Exporter) HighestSlotBlocksBelow(ctx context.Context, slot uint64) ([]*eth.SignedBeaconBlock, error) {
+func (e Exporter) HighestSlotBlocksBelow(ctx context.Context, slot types.Slot) ([]*eth.SignedBeaconBlock, error) {
 	return e.db.HighestSlotBlocksBelow(ctx, slot)
 }
 
 // HighestSlotStatesBelow -- passthrough
-func (e Exporter) HighestSlotStatesBelow(ctx context.Context, slot uint64) ([]*state.BeaconState, error) {
+func (e Exporter) HighestSlotStatesBelow(ctx context.Context, slot types.Slot) ([]*state.BeaconState, error) {
 	return e.db.HighestSlotStatesBelow(ctx, slot)
 }
 
