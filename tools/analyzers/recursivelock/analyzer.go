@@ -11,7 +11,6 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/types/typeutil"
 )
@@ -24,9 +23,11 @@ var Analyzer = &analysis.Analyzer{
 	Run:      run,
 }
 
-var errNestedRLock = errors.New("found recursive read lock call")
-var errNestedLock = errors.New("found recursive lock call")
-var errNestedMixedLock = errors.New("found recursive mixed lock call")
+var (
+	errNestedRLock     = errors.New("found recursive read lock call")
+	errNestedLock      = errors.New("found recursive lock call")
+	errNestedMixedLock = errors.New("found recursive mixed lock call")
+)
 
 type mode int
 
@@ -88,13 +89,15 @@ func run(pass *analysis.Pass) (any, error) {
 	}
 	inspectResult.Preorder(nodeFilter, func(node ast.Node) {
 		if keepTrackOf.rLockTrack.funcLitEnd.IsValid() && node.Pos() <= keepTrackOf.rLockTrack.funcLitEnd &&
-			keepTrackOf.lockTrack.funcLitEnd.IsValid() && node.Pos() <= keepTrackOf.lockTrack.funcLitEnd {
+			keepTrackOf.lockTrack.funcLitEnd.IsValid() &&
+			node.Pos() <= keepTrackOf.lockTrack.funcLitEnd {
 			return
 		}
 		keepTrackOf.rLockTrack.funcLitEnd = token.NoPos
 		keepTrackOf.lockTrack.funcLitEnd = token.NoPos
 
-		if keepTrackOf.rLockTrack.deferEnd.IsValid() && node.Pos() > keepTrackOf.rLockTrack.deferEnd {
+		if keepTrackOf.rLockTrack.deferEnd.IsValid() &&
+			node.Pos() > keepTrackOf.rLockTrack.deferEnd {
 			keepTrackOf.rLockTrack.deferEnd = token.NoPos
 		} else if keepTrackOf.rLockTrack.deferEnd.IsValid() {
 			return
@@ -118,7 +121,12 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func stmtSelector(node ast.Node, pass *analysis.Pass, keepTrackOf *tracker, inspect *inspector.Inspector) *tracker {
+func stmtSelector(
+	node ast.Node,
+	pass *analysis.Pass,
+	keepTrackOf *tracker,
+	inspect *inspector.Inspector,
+) *tracker {
 	switch stmt := node.(type) {
 	case *ast.GoStmt:
 		keepTrackOf.rLockTrack.goroutinePos = stmt.Call.End()
@@ -216,7 +224,14 @@ type lockTracker struct {
 }
 
 func (t lockTracker) String() string {
-	return fmt.Sprintf("funcEnd:%v\nretEnd:%v\ndeferEnd:%v\ndeferredRU:%v\nfoundRLock:%v\n", t.funcEnd, t.retEnd, t.deferEnd, t.deferredRUnlock, t.foundRLock)
+	return fmt.Sprintf(
+		"funcEnd:%v\nretEnd:%v\ndeferEnd:%v\ndeferredRU:%v\nfoundRLock:%v\n",
+		t.funcEnd,
+		t.retEnd,
+		t.deferEnd,
+		t.deferredRUnlock,
+		t.foundRLock,
+	)
 }
 
 func (t *lockTracker) deincFRU() {
@@ -224,12 +239,20 @@ func (t *lockTracker) deincFRU() {
 		t.foundRLock -= 1
 	}
 }
+
 func (t *lockTracker) incFRU() {
 	t.foundRLock += 1
 }
 
-func checkForRecLocks(node ast.Node, pass *analysis.Pass, inspect *inspector.Inspector, lockmode mode, call *callInfo,
-	lockTracker *lockTracker, selMap *selIdentList) {
+func checkForRecLocks(
+	node ast.Node,
+	pass *analysis.Pass,
+	inspect *inspector.Inspector,
+	lockmode mode,
+	call *callInfo,
+	lockTracker *lockTracker,
+	selMap *selIdentList,
+) {
 	name := call.name
 	if lockTracker.rLockSelector != nil {
 		if lockTracker.foundRLock > 0 {
@@ -261,7 +284,8 @@ func checkForRecLocks(node ast.Node, pass *analysis.Pass, inspect *inspector.Ins
 		if name == lockmode.UnLockName() && lockTracker.rLockSelector.isEqual(selMap, 1) {
 			lockTracker.deincFRU()
 		}
-		if name == lockmode.LockName() && lockTracker.foundRLock == 0 && lockTracker.rLockSelector.isEqual(selMap, 0) {
+		if name == lockmode.LockName() && lockTracker.foundRLock == 0 &&
+			lockTracker.rLockSelector.isEqual(selMap, 0) {
 			lockTracker.incFRU()
 		}
 	} else if name == lockmode.LockName() && lockTracker.foundRLock == 0 {
@@ -412,7 +436,7 @@ func (s *selIdentList) changeRoot(r *ast.Ident, t types.Object) {
 }
 
 func (s selIdentList) String() (str string) {
-	var temp = s.start
+	temp := s.start
 	str = fmt.Sprintf("length: %v\n[\n", s.length)
 	for i := 0; temp != nil; i++ {
 		if i == s.currentIndex {
@@ -445,7 +469,7 @@ func mapSelTypes(c *ast.CallExpr, pass *analysis.Pass) *selIdentList {
 
 // recursively identifies the type of each identity node in a selector expression
 func (l *selIdentList) recurMapSelTypes(e ast.Expr, next *selIdentNode, t *types.Info) bool {
-	expr := astutil.Unparen(e)
+	expr := ast.Unparen(e)
 	l.length++
 	s := &selIdentNode{next: next}
 	switch stmt := expr.(type) {
@@ -503,8 +527,16 @@ func interfaceMethod(s *types.Signature) bool {
 // If the call expression does not contain a nested or recursive lock, hasNestedlock returns an empty string.
 // hasNestedlock finds a nested or recursive lock by recursively calling itself on any functions called by the function/method represented
 // by callInfo.
-func hasNestedlock(fullRLockSelector *selIdentList, goPos token.Pos, compareMap *selIdentList, call *callInfo, inspect *inspector.Inspector,
-	pass *analysis.Pass, hist map[string]bool, lockName string) (retStack string) {
+func hasNestedlock(
+	fullRLockSelector *selIdentList,
+	goPos token.Pos,
+	compareMap *selIdentList,
+	call *callInfo,
+	inspect *inspector.Inspector,
+	pass *analysis.Pass,
+	hist map[string]bool,
+	lockName string,
+) (retStack string) {
 	var rLockSelector *selIdentList
 	f := pass.Fset
 	tInfo := pass.TypesInfo
@@ -571,7 +603,11 @@ func hasNestedlock(fullRLockSelector *selIdentList, goPos token.Pos, compareMap 
 
 // findCallDeclarationNode takes a callInfo struct and inspects the AST of the package
 // to find a matching method or function declaration. It returns this declaration of type *ast.FuncDecl
-func findCallDeclarationNode(c *callInfo, inspect *inspector.Inspector, tInfo *types.Info) *ast.FuncDecl {
+func findCallDeclarationNode(
+	c *callInfo,
+	inspect *inspector.Inspector,
+	tInfo *types.Info,
+) *ast.FuncDecl {
 	var retNode *ast.FuncDecl = nil
 	nodeFilter := []ast.Node{
 		(*ast.FuncDecl)(nil),
