@@ -316,5 +316,15 @@
       ".*/.*_test\\.go": "Test logs can be less formal",
       "tools/analyzers/logcapitalization/testdata/.*": "Analyzer testdata has to break rules"
     }
+  },
+  "primarithm": {
+    "exclude_files": {
+      "external/.*": "Third party code",
+      "rules_go_work-.*": "Third party code",
+      ".*/.*_test\\.go": "Tests can use raw arithmetic for simplicity",
+      "tools/analyzers/primarithm/testdata/.*": "Analyzer testdata has to break rules",
+      "consensus-types/primitives/.*": "Safe methods use raw arithmetic internally",
+      "math/.*": "Math package implements the safe helpers"
+    }
   }
 }

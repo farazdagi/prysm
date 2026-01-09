@@ -3,6 +3,7 @@ package primitives
 import (
 	"fmt"
 
+	"github.com/OffchainLabs/prysm/v7/math"
 	fssz "github.com/prysmaticlabs/fastssz"
 )
 
@@ -39,6 +40,42 @@ func (v ValidatorIndex) Sub(x uint64) ValidatorIndex {
 // Mod returns result of `validator index % x`.
 func (v ValidatorIndex) Mod(x uint64) ValidatorIndex {
 	return ValidatorIndex(uint64(v) % x)
+}
+
+// SafeAdd increases validator index by x.
+// In case of overflow, error is returned.
+func (v ValidatorIndex) SafeAdd(x uint64) (ValidatorIndex, error) {
+	res, err := math.Add64(uint64(v), x)
+	return ValidatorIndex(res), err
+}
+
+// SafeSub subtracts x from the validator index.
+// In case of underflow, error is returned.
+func (v ValidatorIndex) SafeSub(x uint64) (ValidatorIndex, error) {
+	res, err := math.Sub64(uint64(v), x)
+	return ValidatorIndex(res), err
+}
+
+// FlooredSub safely subtracts x from the validator index, returning 0 if the result would underflow.
+func (v ValidatorIndex) FlooredSub(x uint64) ValidatorIndex {
+	if uint64(v) < x {
+		return 0
+	}
+	return ValidatorIndex(uint64(v) - x)
+}
+
+// SafeDiv divides validator index by x.
+// In case of division by zero, error is returned.
+func (v ValidatorIndex) SafeDiv(x uint64) (ValidatorIndex, error) {
+	res, err := math.Div64(uint64(v), x)
+	return ValidatorIndex(res), err
+}
+
+// SafeMod returns result of `validator index % x`.
+// In case of division by zero, error is returned.
+func (v ValidatorIndex) SafeMod(x uint64) (ValidatorIndex, error) {
+	res, err := math.Mod64(uint64(v), x)
+	return ValidatorIndex(res), err
 }
 
 // HashTreeRoot --

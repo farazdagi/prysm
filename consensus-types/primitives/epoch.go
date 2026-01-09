@@ -102,6 +102,14 @@ func (e Epoch) SafeSub(x uint64) (Epoch, error) {
 	return Epoch(res), err
 }
 
+// FlooredSubEpoch safely subtracts x from the epoch, returning 0 if the result would underflow.
+func (e Epoch) FlooredSubEpoch(x Epoch) Epoch {
+	if e < x {
+		return 0
+	}
+	return e - x
+}
+
 // Mod returns result of `epoch % x`.
 // In case of arithmetic issues (overflow/underflow/div by zero) panic is thrown.
 func (e Epoch) Mod(x uint64) Epoch {
